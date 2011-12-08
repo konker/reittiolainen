@@ -8,7 +8,11 @@
 # Authors: Konrad Markus <konker@gmail.com>
 #
 
+import re
 import json
+import urllib
+import urllib2
+
 
 ENDPOINT = 'http://api.reittiopas.fi/hsl/prod/'
 
@@ -74,7 +78,11 @@ class Reittiopas(object):
         else:
             params['transport_types'] = transport_types
 
-        return self._request_url(params)
+        return self._make_request(self._request_url(params))
+
+
+    def geocode_coords(self, search_term):
+        return self._get_coords(self.geocode(search_term))
 
 
     def geocode(self, search_term, cities=GEOCODE_CITIES_DEFAULT, location_types=GEOCODE_LOCATION_TYPES_DEFAULT):
@@ -90,25 +98,59 @@ class Reittiopas(object):
             params['location_types'] = "|".join(location_types)
         elif not location_types == '':
             params['location_types'] = location_types
+        else:
+            if re.match("^\w?\d+$", params['key']):
+                params['location_types'] = 'stop'
+            else:
+                params['location_types'] = 'address'
 
-        return self._request_url(params)
+        return self._make_request(self._request_url(params))
+
+
+    def _get_coords(self, response):
+        if len(response) > 0:
+            return tuple(response[0]['coords'].split(','))
+        return None
+
+    def _make_request(self, url):
+        print(url)
+        try:
+            f = urllib2.urlopen(url)
+        except urllib2.HTTPError as ex:
+            print(str(ex))
+            exit(-1)
+
+        if self.format == 'txt':
+            return f.read()
+        elif self.format == 'json':
+            return json.load(f)
+        else:
+            #[FIXME: xml handling]
+            return None
 
 
     def _request_url(self, params):
         url = "%s?user=%s&pass=%s&request=%s&format=%s&lang=%s" % (self.endpoint, self.username, self.password, params['request'], self.format, self.language)
         for (key,value) in params.items():
             # TODO: urlencode values
-            url += "&%s=%s" % (key, value)
+            url += "&%s=%s" % (urllib.quote(key), urllib.quote(value))
             
         return url
 
+
 def main():
-    reittiopass = Reittiopas(ENDPOINT, 'konker', '----')
-    reittiopass.format = 'txt'
+    reittiopass = Reittiopas(ENDPOINT, 'konker', 'pppp')
+    reittiopass.format = 'json'
     reittiopass.language = 'en'
-    print(reittiopass.geocode("Tekniikatie 14, Espoo"))
-    print(reittiopass.geocode("Fredrikinktu 63, Helsinki"))
-    print(reittiopass.route((2545972,6674578), (2551796,6673513)))
+    fr = reittiopass.geocode_coords("Tekniikatie 14, Espoo")
+    to = reittiopass.geocode_coords("Fredrikinktu 63, Helsinki")
+    route = reittiopass.route(fr, to, time='1700', detail_level='limited')
+    for rr in route:
+        print("====")
+        for r in rr:
+            print("---")
+            for l in r['legs']:
+                print(l['type'])
 
 
 if __name__ == '__main__':
